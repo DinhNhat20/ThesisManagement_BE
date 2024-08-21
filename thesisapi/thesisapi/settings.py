@@ -80,9 +80,9 @@ WSGI_APPLICATION = 'thesisapi.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'thesesdb_qldapm',
+        'NAME': 'thesesdb',
         'USER': 'root',
-        'PASSWORD': 'Admin@123',
+        'PASSWORD': 'Nhat@123',
         'HOST': ''  # mặc định localhost
     }
 }
