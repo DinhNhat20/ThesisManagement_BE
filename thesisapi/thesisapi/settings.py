@@ -36,6 +36,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'theses.apps.ThesesConfig',
+    'oauth2_provider',
+    'cloudinary',
+    'rest_framework',
+    'drf_yasg',
 ]
 
 AUTH_USER_MODEL = 'theses.User'
@@ -76,9 +80,9 @@ WSGI_APPLICATION = 'thesisapi.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'thesesdb',
+        'NAME': 'thesesdb_qldapm',
         'USER': 'root',
-        'PASSWORD': 'Nhat@123',
+        'PASSWORD': 'Admin@123',
         'HOST': ''  # mặc định localhost
     }
 }
