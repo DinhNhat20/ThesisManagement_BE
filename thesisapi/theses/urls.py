@@ -8,7 +8,7 @@ r.register('users', views.UserViewSet, 'users')  # Người dùng
 # r.register('positions', views.PositionViewSet, 'positions')  # Vị trí
 # r.register('school_years', views.SchoolYearViewSet, 'school_years')  # Năm học
 # r.register('majors', views.MajorViewSet, 'majors')  # Ngành
-# r.register('lecturers', views.LecturerViewSet, 'lecturers')  # Giảng viên
+r.register('lecturers', views.LecturerViewSet, 'lecturers')  # Giảng viên
 r.register('students', views.StudentViewSet, 'students')  # Sinh viên
 # r.register('councils', views.CouncilViewSet, 'councils')  # Hội đồng
 # r.register('council_details', views.CouncilDetailViewSet, 'council_details')  # Chi tiết hội đồng

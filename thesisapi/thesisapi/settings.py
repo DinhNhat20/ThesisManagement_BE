@@ -77,12 +77,22 @@ WSGI_APPLICATION = 'thesisapi.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.mysql',
+#         'NAME': 'thesesdb',
+#         'USER': 'root',
+#         'PASSWORD': 'Nhat@123',
+#         'HOST': ''  # mặc định localhost
+#     }
+# }
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'thesesdb',
+        'NAME': 'thesesdb_qldapm',
         'USER': 'root',
-        'PASSWORD': 'Nhat@123',
+        'PASSWORD': 'Admin@123',
         'HOST': ''  # mặc định localhost
     }
 }

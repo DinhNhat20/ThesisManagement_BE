@@ -3,7 +3,7 @@ from rest_framework import viewsets, parsers, generics, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from theses import serializers, perms, paginators
-from theses.models import User, Student
+from theses.models import User, Student, Position, CouncilDetail, Thesis, Lecturer
 
 
 # Người dùng
@@ -35,6 +35,56 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(serializers.UserSerializer(user).data)
+
+
+# Giảng viên
+class LecturerViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.RetrieveAPIView):
+    queryset = Lecturer.objects.all()
+    serializer_class = serializers.LecturerSerializer
+    pagination_class = paginators.BasePaginator
+    parser_classes = [parsers.MultiPartParser]
+
+    def get_queryset(self):
+        queryset = self.queryset
+
+        q = self.request.query_params.get('q')
+        if q:
+            queryset = queryset.filter(full_name__icontains=q)
+
+        fac_id = self.request.query_params.get('faculty_id')
+        if fac_id:
+            queryset = queryset.filter(faculty_id=fac_id)
+
+        return queryset
+
+    # Lấy hội đồng giảng viên tham gia
+    @action(detail=True, methods=['get'], url_path='councils')
+    def get_councils(self, request, pk=None):
+        lecturer = self.get_object()
+        council_details = CouncilDetail.objects.filter(lecturer=lecturer).select_related('council', 'position')
+        serializer = serializers.CouncilDetailWithIDSerializer(council_details, many=True)
+        return Response(serializer.data)
+
+    # Lấy khóa luận giảng viên hướng dẫn
+    @action(detail=True, methods=['get'])
+    def theses(self, request, pk=None):
+        lecturer = self.get_object()
+        theses = Thesis.objects.filter(lecturers=lecturer)
+        serializer = serializers.ThesisSerializer(theses, many=True)
+        return Response(serializer.data)
+
+    # Lấy khóa luận giảng viên phản biện
+    @action(detail=True, methods=['get'])
+    def theses_review(self, request, pk=None):
+        lecturer = self.get_object()
+        review_positions = Position.objects.filter(name__icontains='Phản biện')
+        council_details = (CouncilDetail.objects.filter(lecturer=lecturer, position__in=review_positions)
+                           .select_related('council'))
+        council_ids = council_details.values_list('council_id', flat=True)
+        theses = (Thesis.objects.filter(council_id__in=council_ids).select_related('major', 'school_year', 'council')
+                  .prefetch_related('lecturers'))
+        serializer = serializers.ThesisSerializer(theses, many=True)
+        return Response(serializer.data)
 
 
 class StudentViewSet(viewsets.ViewSet, generics.ListAPIView):
