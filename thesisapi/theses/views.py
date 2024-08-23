@@ -251,3 +251,129 @@ class ThesisCriteriaViewSet(viewsets.ViewSet, generics.ListAPIView):
 
         serializer = self.serializer_class(thesis_criteria)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+# Khóa luận
+class ThesisViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.RetrieveAPIView, generics.DestroyAPIView):
+    queryset = Thesis.objects.prefetch_related('lecturers').all().order_by('code')
+    serializer_class = serializers.ThesisSerializer
+    parser_classes = [parsers.MultiPartParser, ]
+    pagination_class = paginators.ThesisPaginator
+
+    def get_queryset(self):
+        queryset = self.queryset
+
+        # Lọc theo các tham số truy vấn
+        q = self.request.query_params.get('q')
+        council_id = self.request.query_params.get('council_id')
+        major_id = self.request.query_params.get('major_id')
+        school_year_id = self.request.query_params.get('school_year_id')
+
+        if q:
+            queryset = queryset.filter(name__icontains=q)
+        if council_id:
+            queryset = queryset.filter(council_id=council_id)
+        if major_id:
+            queryset = queryset.filter(major_id=major_id)
+        if school_year_id:
+            queryset = queryset.filter(school_year_id=school_year_id)
+
+        return queryset
+
+    # Sửa thông tin
+    def partial_update(self, request, pk=None):
+        thesis = self.get_object()
+        serializer = self.serializer_class(thesis, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            serializer.save()
+            update_total_score(thesis.code)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # Thêm giảng viên hướng dẫn vào khóa luận
+    @action(detail=True, methods=['post'], url_path='add_lecturer')
+    def add_lecturer(self, request, pk=None):
+        try:
+            thesis = self.get_object()
+
+            if thesis.lecturers.count() >= 2:
+                return Response({"Thông báo": "Khóa luận đã đủ hai giảng viên hướng dẫn không thể thêm!"}, status=status.HTTP_400_BAD_REQUEST)
+
+            lecturer_code = request.data.get('lecturer_code')
+
+            lecturer = Lecturer.objects.get(code=lecturer_code)
+        except (Thesis.DoesNotExist, Lecturer.DoesNotExist):
+            return Response({"Thông báo": "Khóa luận hoặc giảng viên không tồn tại!"}, status=status.HTTP_404_NOT_FOUND)
+
+        if lecturer in thesis.lecturers.all():
+            return Response({"Thông báo": "Giảng viên đã có trong danh sách hướng dẫn!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        thesis.lecturers.add(lecturer)
+        thesis.save()
+
+        serializer = self.get_serializer(thesis)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # Thêm khóa luận vào trong sinh viên
+    @action(detail=True, methods=['post'], url_path='add_student')
+    def add_student(self, request, pk=None):
+        try:
+            thesis = self.get_object()
+            student_id = request.data.get('student_id')
+            student = Student.objects.get(user_id=student_id)
+        except (Thesis.DoesNotExist, Student.DoesNotExist):
+            return Response({"Thông báo": "Khóa luận hoặc sinh viên không tồn tại!"}, status=status.HTTP_404_NOT_FOUND)
+
+        if student.thesis:
+            return Response({"Thông báo": "Sinh viên đã có khóa luận!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Kiểm tra ngành của sinh viên phải cùng với ngành của khóa luận
+        if student.major != thesis.major:
+            return Response({'Thông báo': 'Không thể thêm do sinh viên và khóa luận không cùng ngành!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        student.thesis = thesis
+        student.save()
+
+        serializer = self.get_serializer(thesis)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # Lấy tiêu chí của KL
+    @action(detail=True, methods=['get'], url_path='criteria')
+    def get_thesis_criteria(self, request, pk=None):
+        try:
+            thesis = Thesis.objects.prefetch_related('thesiscriteria_set__criteria').get(pk=pk)
+            thesis_criteria = thesis.thesiscriteria_set.all()
+            serializer = serializers.ThesisCriteriaSerializer(thesis_criteria, many=True)
+            return Response(serializer.data)
+        except Thesis.DoesNotExist:
+            return Response({"Thông báo": "Không tìm thấy khóa luận!"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Lấy điểm giảng viên chấm cho KL
+    @action(detail=True, methods=['get'], url_path='lecturer-scores')
+    def get_lecturer_scores(self, request, pk=None):
+        try:
+            lecturer = request.user.lecturer
+        except Lecturer.DoesNotExist:
+            return Response({"Thông báo": "Không tìm thấy giảng viên!"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            thesis = self.get_object()
+        except Thesis.DoesNotExist:
+            return Response({"Thông báo": "Không tìm thấy khóa luận!"}, status=status.HTTP_404_NOT_FOUND)
+
+        council_details = thesis.council.councildetail_set.filter(lecturer=lecturer)
+        scores = Score.objects.filter(thesis_criteria__thesis=thesis, council_detail__in=council_details)
+
+        response_data = []
+        for score in scores:
+            response_data.append({
+                'id': score.id,
+                'thesis_criteria': score.thesis_criteria.id,
+                'council_detail': score.council_detail.id,
+                'score_number': score.score_number,
+                'criteria_name': score.thesis_criteria.criteria.name,
+                'evaluation_method': score.thesis_criteria.criteria.evaluation_method
+            })
+
+        return Response(response_data, status=status.HTTP_200_OK)
