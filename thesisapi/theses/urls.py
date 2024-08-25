@@ -12,7 +12,7 @@ r.register('lecturers', views.LecturerViewSet, 'lecturers')  # Giảng viên
 r.register('students', views.StudentViewSet, 'students')  # Sinh viên
 # r.register('councils', views.CouncilViewSet, 'councils')  # Hội đồng
 # r.register('council_details', views.CouncilDetailViewSet, 'council_details')  # Chi tiết hội đồng
-# r.register('theses', views.ThesisViewSet, 'theses')  # Khóa luận
+r.register('theses', views.ThesisViewSet, 'theses')  # Khóa luận
 r.register('scores', views.ScoreViewSet, 'scores')  # Điểm
 r.register('criterias', views.CriteriaViewSet, 'criterias')  # Tiêu chí
 r.register('thesiscriterias', views.ThesisCriteriaViewSet, 'thesiscriterias')  # Tiêu chí của khóa luận

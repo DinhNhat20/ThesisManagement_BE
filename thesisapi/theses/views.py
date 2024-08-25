@@ -1,9 +1,25 @@
+import os
+from io import BytesIO
 from django.contrib.auth.hashers import make_password
-from rest_framework import viewsets, parsers, generics, permissions, status
+from django.core.files.base import ContentFile
+from django.core.files.storage import FileSystemStorage, default_storage
+from django.db.models import Avg, Count, F
+from django.db.models.functions import ExtractYear
+from django.http import Http404, HttpResponse
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Table, TableStyle
+from rest_framework import viewsets, generics, status, parsers, permissions
 from rest_framework.decorators import action
+from rest_framework.generics import get_object_or_404
 from rest_framework.response import Response
-from theses import serializers, perms, paginators
-from theses.models import User, Student, Position, CouncilDetail, Thesis, Lecturer, Criteria, ThesisCriteria, Score
+from theses.models import *
+from theses import serializers, paginators, perms
+from django.core.mail import EmailMessage
+from django.conf import settings
 from theses.signals import update_total_score
 
 
@@ -299,7 +315,8 @@ class ThesisViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.Retri
             thesis = self.get_object()
 
             if thesis.lecturers.count() >= 2:
-                return Response({"Thông báo": "Khóa luận đã đủ hai giảng viên hướng dẫn không thể thêm!"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"Thông báo": "Khóa luận đã đủ hai giảng viên hướng dẫn không thể thêm!"},
+                                status=status.HTTP_400_BAD_REQUEST)
 
             lecturer_code = request.data.get('lecturer_code')
 
@@ -308,7 +325,8 @@ class ThesisViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.Retri
             return Response({"Thông báo": "Khóa luận hoặc giảng viên không tồn tại!"}, status=status.HTTP_404_NOT_FOUND)
 
         if lecturer in thesis.lecturers.all():
-            return Response({"Thông báo": "Giảng viên đã có trong danh sách hướng dẫn!"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"Thông báo": "Giảng viên đã có trong danh sách hướng dẫn!"},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         thesis.lecturers.add(lecturer)
         thesis.save()
@@ -379,3 +397,164 @@ class ThesisViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.Retri
             })
 
         return Response(response_data, status=status.HTTP_200_OK)
+
+        # Xuất bản điểm ra file PDF
+
+    @action(detail=True, methods=['get'], url_path='generate-pdf')
+    def generate_pdf(self, request, pk=None, colors=None):
+        thesis = get_object_or_404(Thesis, pk=pk)
+
+        total_score = thesis.total_score
+        major_name = thesis.major.name
+        students = thesis.student_set.all()
+        instructors = thesis.lecturers.all()
+        council_name = thesis.council.name
+
+        lecturer_total_scores = {}
+        for thesis_criteria in thesis.thesiscriteria_set.all():
+            scores = Score.objects.filter(thesis_criteria=thesis_criteria)
+            for score in scores:
+                lecturer_id = score.council_detail.lecturer.pk
+                weighted_score = score.score_number * thesis_criteria.weight
+                position = score.council_detail.position  # Lấy chức vụ của giảng viên
+
+                if lecturer_id not in lecturer_total_scores:
+                    lecturer_total_scores[lecturer_id] = {
+                        'lecturer': score.council_detail.lecturer.full_name,
+                        'score': weighted_score,
+                        'position': position  # Lưu chức vụ
+                    }
+                else:
+                    lecturer_total_scores[lecturer_id]['score'] += weighted_score
+
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="score_sheet_{thesis.code}.pdf"'
+
+        buffer = BytesIO()
+        pdf = canvas.Canvas(buffer, pagesize=A4)
+        page_width, page_height = letter
+
+        font_path = os.path.join(os.path.dirname(__file__), 'static/fonts/tahoma.ttf')
+        pdfmetrics.registerFont(TTFont('Tahoma', font_path))
+
+        pdf.setFont("Tahoma", 12)
+
+        text_width = pdf.stringWidth("BỘ GIÁO DỤC VÀ ĐẠO TẠO", "Tahoma", 12)
+        text_height = 800
+
+        pdf.drawString((350 - text_width) / 2, text_height, "BỘ GIÁO DỤC VÀ ĐẠO TẠO")
+
+        text_width = pdf.stringWidth("TRƯỜNG ĐẠI HỌC MỞ TP. HỒ CHÍ MINH", "Tahoma", 12)
+
+        pdf.drawString((350 - text_width) / 2, text_height - 20, "TRƯỜNG ĐẠI HỌC MỞ TP. HỒ CHÍ MINH")
+
+        title = f"PHIẾU CHẤM ĐIỂM"
+        title_width = pdf.stringWidth(title, "Tahoma", 12)
+        pdf.drawString(500 - title_width, 800, title)
+
+        y_position = 740
+
+        pdf.setFont("Tahoma", 14)
+
+        thesis_title = f"ĐỀ TÀI: {thesis.name}"
+        thesis_title_width = pdf.stringWidth(thesis_title, "Tahoma", 12)
+
+        pdf.drawString((letter[0] - thesis_title_width) / 2 - 35, letter[1] - 50, thesis_title)
+
+        lecturer_total_scores = {}
+        for thesis_criteria in thesis.thesiscriteria_set.all():
+            scores = Score.objects.filter(thesis_criteria=thesis_criteria)
+            for score in scores:
+                lecturer_id = score.council_detail.lecturer.pk
+                weighted_score = score.score_number * thesis_criteria.weight
+                position = score.council_detail.position.name if score.council_detail.position else ''
+
+                if lecturer_id not in lecturer_total_scores:
+                    lecturer_total_scores[lecturer_id] = {
+                        'lecturer': score.council_detail.lecturer.full_name,
+                        'score': weighted_score,
+                        'position': position,
+                    }
+                else:
+                    lecturer_total_scores[lecturer_id]['score'] += weighted_score
+
+        pdf.drawString(50, page_height - 100, f"Ngành: {major_name}")
+
+        pdf.drawString(50, page_height - 130, "Danh sách sinh viên thực hiện:")
+        student_start_y = page_height - 160
+        for student in students:
+            pdf.drawString(60, student_start_y, f"Mã SV: {student.code}")
+            pdf.drawString(170, student_start_y, f"Tên: {student.full_name}")
+            pdf.drawString(340, student_start_y, f"Ngành: {student.major.name}")
+            student_start_y -= 30
+
+        pdf.drawString(50, page_height - 250, "Danh sách giảng viên hướng dẫn:")
+        counselor_start_y = page_height - 280
+        for instructor in instructors:
+            pdf.drawString(60, counselor_start_y, f"Mã GV: {instructor.code}")
+            pdf.drawString(170, counselor_start_y, f"Tên: {instructor.full_name}")
+            counselor_start_y -= 30
+
+        pdf.drawString(50, page_height - 370, f"Hội đồng chấm khóa luận: {council_name}")
+
+        # Vẽ bảng điểm
+        pdf.setFont("Tahoma", 12)
+        data = [['TÊN GIẢNG VIÊN', 'CHỨC VỤ', 'ĐIỂM']]
+        for lecturer_id, info in lecturer_total_scores.items():
+            data.append([info['lecturer'], info['position'], f"{info['score']}"])
+
+        data.append(['', 'TỔNG ĐIỂM', f"{total_score}"])
+
+        col_widths = [page_width * 0.4, page_width * 0.2, page_width * 0.2]  # Cập nhật độ rộng các cột
+        row_height = 20
+        table_width = sum(col_widths)
+
+        table = Table(data, colWidths=col_widths, rowHeights=row_height)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Tahoma'),  # Đặt font Tahoma cho toàn bộ bảng
+            ('FONTSIZE', (0, 0), (-1, -1), 12),  # Đặt kích thước font
+            ('INNERGRID', (0, 0), (-1, -1), 0.25, colors.black),
+            ('BOX', (0, 0), (-1, -1), 0.25, colors.black),
+        ]))
+
+        table.wrapOn(pdf, table_width, 400)
+
+        table_x = 50
+        table_y = page_height - 500
+
+        table.drawOn(pdf, table_x, table_y)
+
+        pdf.setFont("Tahoma", 12)
+        date_string = f"TP. Hồ Chí Minh, Ngày......Tháng......Năm......"
+        signature_string = "Chữ ký lãnh đạo (Ký và ghi rõ họ tên)"
+        date_string_width = pdf.stringWidth(date_string, "Tahoma", 12)
+        signature_string_width = pdf.stringWidth(signature_string, "Tahoma", 12)
+
+        margin = 50
+
+        max_string_width = max(date_string_width, signature_string_width)
+        start_x = pdf._pagesize[0] - max_string_width - margin
+        date_y = margin + 180
+        signature_y = margin + 160
+
+        pdf.drawString(start_x, date_y, date_string)
+        pdf.drawString(start_x + 15, signature_y, signature_string)
+
+        pdf.save()
+
+        buffer.seek(0)
+        pdf_data = buffer.read()
+
+        if not pdf_data.startswith(b'%PDF'):
+            return Response({'Thông báo': 'Xuất file PDF thất bại!'}, status=500)
+
+        buffer.close()
+
+        filename = f"score_{thesis.code}.pdf"
+        file_path = default_storage.save(os.path.join('media', filename), ContentFile(pdf_data))
+        file_url = default_storage.url(file_path)
+
+        return Response({'file_url': request.build_absolute_uri(file_url)})
