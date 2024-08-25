@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from theses import serializers, perms, paginators
 from theses.models import User, Student, Position, CouncilDetail, Thesis, Lecturer, Criteria, ThesisCriteria, Score
+from theses.signals import update_total_score
 
 
 # Người dùng
@@ -251,6 +252,7 @@ class ThesisCriteriaViewSet(viewsets.ViewSet, generics.ListAPIView):
 
         serializer = self.serializer_class(thesis_criteria)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 
 # Khóa luận
 class ThesisViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.RetrieveAPIView, generics.DestroyAPIView):
