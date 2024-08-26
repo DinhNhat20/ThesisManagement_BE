@@ -907,6 +907,7 @@ class PostViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         # return Response(serializers.AuthenticatedPost(self.get_object()).data)
 
 
+
 # Bình luận
 class CommentViewSet(viewsets.ViewSet, generics.DestroyAPIView):
     queryset = Comment.objects.filter(active=True).order_by('-created_date')
