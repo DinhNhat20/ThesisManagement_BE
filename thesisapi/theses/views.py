@@ -558,3 +558,34 @@ class ThesisViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.Retri
         file_url = default_storage.url(file_path)
 
         return Response({'file_url': request.build_absolute_uri(file_url)})
+
+
+# Thống kê
+class ThesisStatsViewSet(viewsets.ViewSet):
+    permission_classes = [perms.IsMinistry]
+
+    def list(self, request):
+        avg_score_by_school_year = Thesis.objects.values(
+            'school_year__start_year', 'school_year__end_year'
+        ).annotate(
+            start_year=ExtractYear('school_year__start_year'),
+            end_year=ExtractYear('school_year__end_year'),
+            avg_score=Avg('total_score')
+        )
+
+        for item in avg_score_by_school_year:
+            if item['avg_score'] is not None:
+                item['avg_score'] = round(item['avg_score'], 2)
+
+        thesis_major_count = Major.objects.annotate(
+            major_name=F('name'),
+            thesis_count=Count('thesis')
+        )
+
+        avg_score_serializer = serializers.ThesisStatsSerializer(avg_score_by_school_year, many=True)
+        thesis_count_serializer = serializers.MajorThesisCountSerializer(thesis_major_count, many=True)
+
+        return Response({
+            'avg_score_by_school_year': avg_score_serializer.data,
+            'thesis_major_count': thesis_count_serializer.data
+        })

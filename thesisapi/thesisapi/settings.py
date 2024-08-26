@@ -90,9 +90,9 @@ WSGI_APPLICATION = 'thesisapi.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'thesesdb',
+        'NAME': 'thesesdb_qldapm',
         'USER': 'root',
-        'PASSWORD': 'Nhat@123',
+        'PASSWORD': 'Admin@123',
         'HOST': ''  # mặc định localhost
     }
 }
@@ -135,3 +135,7 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Đừng xóa nhen
+CLIENT_ID = 'QvPHj99mzU7hDwKJ4yNo7W3a4GGlpGVA9YBiXkas'
+CLIENT_SECRET = 'vlq8CKIgRu7JgYcpIxsmdxwU2LUWFp8H4O8XCQjQFaKZd5qt7OawiZOspDlKwsjl5GhrJys22Jc9FncD3uMRstxlzjVbX70ckGJMqtCD8hhYSqNrwSvtJeYZAqCjUhHz'

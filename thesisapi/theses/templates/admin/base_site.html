@@ -1,0 +1,44 @@
+
+{% extends "admin/base.html" %}
+
+{% block title %}Thesis Management{% endblock %}
+
+{% block branding %}
+<h1 id="site-name"><a href="{% url 'admin:index' %}">THESIS MANAGEMENT</a></h1>
+{% endblock %}
+
+{% block nav-global %}
+{{ block.super }}
+<ul class="nav-global-menu">
+    <li><a href="{{ custom_stats_url }}">Thống kê</a></li>
+</ul>
+{% endblock %}
+
+{% block userlinks %}
+{{ block.super }}
+<div id="user-tools">
+    <ul>
+        <li><a href="{% url 'admin:logout' %}">Đăng xuất</a></li>
+    </ul>
+</div>
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    /* Thay đổi màu sắc header */
+    #branding h1 a, #branding #user-tools a {
+        color: #ffffff; /* Màu chữ */
+    }
+    #branding {
+        background-color: #3498db; /* Màu nền header */
+        border-bottom: 1px solid #2980b9; /* Đường viền dưới */
+    }
+
+    /* Thay đổi màu sắc và padding của nút đăng xuất */
+    #user-tools ul li a {
+        color: #ffffff; /* Màu chữ */
+        padding: 5px 10px; /* Điều chỉnh khoảng cách xung quanh nút */
+    }
+</style>
+{% endblock %}

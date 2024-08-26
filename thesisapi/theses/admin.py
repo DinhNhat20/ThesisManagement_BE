@@ -15,15 +15,15 @@ class MyAdminSite(admin.AdminSite):
     index_title = 'Thesis Management'
     site_title = 'Admin'
 
-    # def get_urls(self):
-    #     return [path('thesis-stats/', self.stats)] + super().get_urls()
-
     def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path('thesis-stats/', self.stats, name='stats'),
-        ]
-        return custom_urls + urls
+        return [path('thesis-stats/', self.stats)] + super().get_urls()
+
+    # def get_urls(self):
+    #     urls = super().get_urls()
+    #     custom_urls = [
+    #         path('thesis-stats/', self.stats, name='stats'),
+    #     ]
+    #     return custom_urls + urls
 
     def stats(self, request):
         avg_score_by_school_year = Thesis.objects.values('school_year__name').annotate(avg_score=Avg('total_score'))

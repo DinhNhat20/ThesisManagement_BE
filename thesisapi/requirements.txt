@@ -1,6 +1,7 @@
 asgiref==3.8.1
 certifi==2024.2.2
 cffi==1.17.0
+chardet==5.2.0
 charset-normalizer==3.3.2
 cloudinary==1.39.1
 cryptography==43.0.0
@@ -21,6 +22,7 @@ pycparser==2.22
 PyMySQL==1.1.0
 pytz==2024.1
 PyYAML==6.0.1
+reportlab==4.2.2
 requests==2.32.3
 setuptools==69.5.1
 six==1.16.0

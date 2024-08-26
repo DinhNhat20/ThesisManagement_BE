@@ -1,0 +1,150 @@
+
+{% extends 'admin/base_site.html' %}
+{% block title %}Thesis Management | Thống kê{% endblock %}
+{% block content %}
+<div>
+    <h1>THỐNG KÊ ĐIỂM KHÓA LUẬN QUA TỪNG NĂM</h1>
+    <div class="stat-container">
+        <div class="table-container">
+            <table class="table">
+                <tr>
+                    <th>Năm học</th>
+                    <th>Điểm trung bình</th>
+                </tr>
+                {% for avg in avg_score_by_school_year %}
+                <tr>
+                    <td>{{ avg.school_year__start_year.year }} - {{ avg.school_year__end_year.year }}</td>
+                    <td>{{ avg.avg_score }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="chart-container">
+            <canvas id="myChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<div>
+    <h1 class="margin-top">THỐNG KÊ TẦN XUẤT THAM GIA LÀM KHÓA LUẬN CỦA TỪNG NGHÀNH</h1>
+    <div class="stat-container">
+        <div class="table-container">
+            <table class="table">
+                <tr>
+                    <th>Nghành học</th>
+                    <th>Số khóa luận</th>
+                </tr>
+                {% for t in thesis_major_count %}
+                <tr>
+                    <td>{{ t.name }}</td>
+                    <td>{{ t.thesis_count }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="chart-container">
+            <canvas id="myChart02"></canvas>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let r, g, b
+    let labels = [], counter = [], colors = [], borderColors = [], labels02 = [], counter02 = [], colors02 = [], borderColors02 = []
+    {% for t in avg_score_by_school_year %}
+    labels.push('{{ t.school_year__start_year.year }} - {{ t.school_year__end_year.year }}')
+    counter.push({{ t.avg_score }})
+
+    r = parseInt(Math.random()*255)
+    g = parseInt(Math.random()*255)
+    b = parseInt(Math.random()*255)
+    colors.push(`rgba(${r}, ${g}, ${b}, 0.2)`)
+    borderColors.push(`rgba(${r}, ${g}, ${b}, 1)`)
+    {% endfor %}
+
+    {% for c in thesis_major_count %}
+    labels02.push('{{ c.name }}')
+    counter02.push({{ c.thesis_count }})
+
+    r = parseInt(Math.random()*255)
+    g = parseInt(Math.random()*255)
+    b = parseInt(Math.random()*255)
+    colors02.push(`rgba(${r}, ${g}, ${b}, 0.2)`)
+    borderColors02.push(`rgba(${r}, ${g}, ${b}, 1)`)
+    {% endfor %}
+
+    window.onload = function() {
+        const ctx = document.getElementById('myChart');
+        const ctx02 = document.getElementById('myChart02')
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Điểm trung bình',
+                    data: counter,
+                    backgroundColor: colors,
+                    borderColor: borderColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        new Chart(ctx02, {
+            type: 'bar',
+            data: {
+                labels: labels02,
+                datasets: [{
+                    label: 'Số khóa luận',
+                    data: counter02,
+                    backgroundColor: colors02,
+                    borderColor: borderColors02,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+</script>
+
+<style>
+    .stat-container {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 40px;
+    }
+    .table-container {
+        width: 25%;
+    }
+    .chart-container {
+        width: 70%;
+    }
+    h1 {
+        text-align: center;
+        margin-bottom: 40px;
+        font-weight: bold;
+        font-size: 26px;
+        color: black;
+    }
+    .margin-top {
+        margin-top: 56px;
+    }
+</style>
+
+{% endblock %}

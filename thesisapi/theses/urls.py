@@ -18,7 +18,7 @@ r.register('criterias', views.CriteriaViewSet, 'criterias')  # Tiêu chí
 r.register('thesiscriterias', views.ThesisCriteriaViewSet, 'thesiscriterias')  # Tiêu chí của khóa luận
 # r.register('posts', views.PostViewSet, 'posts')  # Bài đăng
 # r.register('comments', views.CommentViewSet, 'comments')  # Bình luận
-# r.register('stats', views.ThesisStatsViewSet, 'stats')  # Thống kê
+r.register('stats', views.ThesisStatsViewSet, 'stats')  # Thống kê
 
 urlpatterns = [
     path('', include(r.urls)),
