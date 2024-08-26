@@ -589,3 +589,337 @@ class ThesisStatsViewSet(viewsets.ViewSet):
             'avg_score_by_school_year': avg_score_serializer.data,
             'thesis_major_count': thesis_count_serializer.data
         })
+
+# Hội đồng
+class CouncilViewSet(viewsets.ViewSet, generics.CreateAPIView, generics.ListAPIView, generics.DestroyAPIView):
+    queryset = Council.objects.all()
+    serializer_class = serializers.CouncilSerializer
+    parser_classes = [parsers.MultiPartParser]
+    pagination_class = paginators.BasePaginator
+
+    def get_queryset(self):
+        queryset = self.queryset
+
+        q = self.request.query_params.get('q')
+        if q:
+            queryset = queryset.filter(name__icontains=q)
+
+        status = self.request.query_params.get('is_lock')
+        if status:
+            queryset = queryset.filter(is_lock=status)
+
+        return queryset
+
+    # Sửa thông tin hội đồng
+    def partial_update(self, request, pk=None):
+        council = self.get_object()
+        serializer = self.serializer_class(council, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # Cập nhật trường is_lock của Council
+    @action(methods=['post'], url_path='update_lock', detail=True)
+    def update_lock(self, request, pk=None):
+        council = self.get_object()
+        old_lock_status = council.is_lock
+        council.is_lock = not council.is_lock
+        council.save()
+
+        if not old_lock_status and council.is_lock:
+            for council_detail in council.councildetail_set.all():
+                for student in council_detail.lecturer.thesis_set.first().student_set.all():
+                    self.send_score_notification_email(student, council_detail.lecturer.thesis_set.first().total_score)
+
+        return Response({'is_lock': council.is_lock}, status=status.HTTP_200_OK)
+
+    def send_score_notification_email(self, student, total_score):
+        student_email = student.user.email
+        subject = 'Thông báo điểm khóa luận'
+        message = (
+            f'Điểm của khóa luận "{student.thesis.name}" đã được chấm.\n'
+            f'Khóa luận của sinh viên "{student.full_name}" được "{total_score}" điểm.\n'
+            'Mọi thắc mắc vui lòng liên hệ hội đồng trong vòng 3 - 5 ngày kể từ ngày nhận thông báo.\n'
+            '__Giáo vụ__'
+        )
+
+        from_email = 'Thesis Management <{}>'.format(settings.DEFAULT_FROM_EMAIL)
+        email = EmailMessage(subject, message, from_email, to=[student_email])
+        email.send()
+
+    # Lấy danh sách thành viên trong hội đồng
+    @action(detail=True, methods=['get'], url_path='members')
+    def get_members(self, request, pk=None):
+        try:
+            council = self.get_object()
+            members = CouncilDetail.objects.filter(council=council).select_related('lecturer', 'position')
+            members_data = [{
+                "id": member.id,
+                "lecturer_id": member.lecturer.user_id,
+                "full_name": member.lecturer.full_name,
+                "position": member.position.name
+            } for member in members]
+            return Response(members_data, status=status.HTTP_200_OK)
+        except Council.DoesNotExist:
+            return Response({'Thông báo': 'Không tìm thấy hội đồng!'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Lấy danh sách khóa luận hội đồng chấm
+    @action(methods=['get'], url_path='theses', detail=True)
+    def get_theses(self, request, pk=None):
+        try:
+            council = self.queryset.get(pk=pk)
+            theses = council.thesis_set.all()
+            serializer = serializers.ThesisSerializer(theses, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Council.DoesNotExist:
+            return Response({'Thông báo': 'Không tìm thấy hội đồng!'}, status=status.HTTP_404_NOT_FOUND)
+
+    # Gán hội đồng vào khóa luận
+    @action(detail=True, methods=['post'], url_path='assign-thesis')
+    def assign_thesis(self, request, pk=None):
+        try:
+            council = self.get_object()
+        except Council.DoesNotExist:
+            return Response({'Thông báo': 'Hội đồng không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+        if council.thesis_set.count() >= 5:
+            return Response({'Thông báo': 'Một hội đồng chỉ chấm tối đa 5 khóa luận!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        thesis_code = request.data.get('thesis_code')
+        try:
+            thesis = Thesis.objects.get(code=thesis_code)
+        except Thesis.DoesNotExist:
+            return Response({'Thông báo': 'Khóa luận không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+        if thesis.council:
+            return Response({'Thông báo': f'Khóa luận {thesis_code} đã được gán hội đồng!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        thesis_lecturers = thesis.lecturers.all()
+        council_lecturers = council.councildetail_set.values_list('lecturer', flat=True)
+        if any(lecturer.user_id in council_lecturers for lecturer in thesis_lecturers):
+            return Response({'Thông báo': 'Hội đồng có giảng viên là giảng viên hướng dẫn khóa luận này!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        thesis.council = council
+        thesis.save()
+
+        return Response(serializers.CouncilSerializer(council).data, status=status.HTTP_201_CREATED)
+
+
+# Chi tiết hội đồng
+class CouncilDetailViewSet(viewsets.ViewSet, generics.DestroyAPIView):
+    queryset = CouncilDetail.objects.all()
+    serializer_class = serializers.CouncilDetailSerializer
+    parser_classes = [parsers.MultiPartParser]
+
+    # Gửi email gán GVPB
+    def send_reviewer_email(self, council, lecturer):
+        lecturer_email = lecturer.user.email
+        lecturer_name = lecturer.full_name
+        council_name = council.name
+        subject = f'Bạn đã được giao làm phản biện cho hội đồng "{council_name}"'
+        message = (
+            f'Chào {lecturer_name}\nBạn đã được giao vai trò phản biện cho hội đồng "{council_name}".\n'
+            'Vui lòng chuẩn bị và liên hệ với các thành viên khác trong hội đồng để hoàn thành nhiệm vụ của mình.\n'
+            '__Giáo vụ__'
+        )
+
+        from_email = 'Thesis Management <{}>'.format(settings.DEFAULT_FROM_EMAIL)
+
+        email = EmailMessage(subject, message, from_email, to=[lecturer_email])
+        email.send()
+
+    # Thêm, sửa thành viên hội đồng
+    @action(detail=False, methods=['post', 'patch'], url_path='members')
+    def member_manager(self, request):
+        council_id = request.data.get('council')
+        lecturer_id = request.data.get('lecturer')
+        position_id = request.data.get('position')
+
+        try:
+            council = Council.objects.prefetch_related('councildetail_set').get(id=council_id)
+        except Council.DoesNotExist:
+            return Response({'Thông báo': 'Hội đồng không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+        council_details = council.councildetail_set.all()
+
+        if council_details.count() >= 5:
+            return Response({'Thông báo': 'Một hội đồng chỉ có tối đa năm thành viên!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Đếm số lượng từng vị trí bằng ID
+        position_counts = {
+            1: 0,  # ID của chủ tịch
+            2: 0,  # ID của thư ký
+            3: 0  # ID của phản biện
+        }
+
+        for detail in council_details:
+            pos_id = detail.position.id
+            if pos_id in position_counts:
+                position_counts[pos_id] += 1
+
+        try:
+            position = Position.objects.get(id=position_id)
+        except Position.DoesNotExist:
+            return Response({'Thông báo': 'Vị trí không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Kiểm tra vị trí bằng ID
+        if position.id == 1 and position_counts[1] >= 1:
+            return Response({'Thông báo': 'Hội đồng chỉ có một chủ tịch!'}, status=status.HTTP_400_BAD_REQUEST)
+        if position.id == 2 and position_counts[2] >= 1:
+            return Response({'Thông báo': 'Hội đồng chỉ có một thư ký!'}, status=status.HTTP_400_BAD_REQUEST)
+        if position.id == 3 and position_counts[3] >= 1:
+            return Response({'Thông báo': 'Hội đồng chỉ có một phản biện!'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            lecturer = Lecturer.objects.get(user_id=lecturer_id)
+        except Lecturer.DoesNotExist:
+            return Response({'Thông báo': 'Giảng viên không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Kiểm tra nếu giảng viên đã có một chức vụ trong hội đồng này
+        if council_details.filter(lecturer_id=lecturer_id).exists():
+            return Response({'Thông báo': 'Giảng viên này đã giữ một chức vụ khác trong hội đồng!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        if request.method.__eq__('POST'):
+            serializer = self.serializer_class(data=request.data)
+            if serializer.is_valid():
+                council_detail = serializer.save()
+
+                # Gửi email nếu là phản biện
+                if position.id == 3:
+                    self.send_reviewer_email(council, lecturer)
+
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if request.method.__eq__('PATCH'):
+            try:
+                council_detail = CouncilDetail.objects.get(council_id=council_id, lecturer_id=lecturer_id)
+            except CouncilDetail.DoesNotExist:
+                return Response({'Thông báo': 'Thành viên hội đồng không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+            try:
+                position = Position.objects.get(id=position_id)
+            except Position.DoesNotExist:
+                return Response({'Thông báo': 'Vị trí không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+
+            council_detail.position = position
+            council_detail.save()
+
+            if position.id == 3:
+                council = Council.objects.get(id=council_id)
+                lecturer = Lecturer.objects.get(user_id=lecturer_id)
+                self.send_reviewer_email(council, lecturer)
+
+            return Response({'Thông báo': 'Thông tin vị trí đã được cập nhật!'}, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except Http404:
+            return Response({'Thông báo': 'Thành viên hội đồng không tồn tại!'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'Thông báo': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+# Bài đăng
+class PostViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
+    queryset = Post.objects.filter(active=True).order_by('-created_date')
+    serializer_class = serializers.PostSerializer
+    parser_classes = [parsers.MultiPartParser]
+    pagination_class = paginators.PostCommentPaginator
+
+    def get_queryset(self):
+        queryset = self.queryset
+        q = self.request.query_params.get('q')
+        if q:
+            queryset = queryset.filter(content__icontains=q)
+
+        return queryset
+
+    def get_permissions(self):
+        if self.action in ['create', 'add_comment', 'like']:
+            return [permissions.IsAuthenticated()]
+        if self.action in ['partial_update', 'destroy']:
+            return [perms.PostOwner()]
+        return [permissions.AllowAny()]
+
+    def get_serializer_class(self):
+        if self.request.user.is_authenticated:
+            return serializers.AuthenticatedPost
+
+        return self.serializer_class
+
+    def create(self, request):
+        serializer = self.serializer_class(data=request.data)
+        if serializer.is_valid():
+            serializer.save(user=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # Sửa post
+    def partial_update(self, request, pk=None):
+        post = self.get_object()
+        serializer = self.serializer_class(post, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # Xóa post
+    def destroy(self, request, pk=None):
+        post = self.get_object()
+        post.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=['get'], url_path='comments', detail=True)
+    def get_comments(self, request, pk):
+        comments = self.get_object().comment_set.select_related('user').order_by('-id')
+
+        paginator = paginators.BasePaginator()
+        page = paginator.paginate_queryset(comments, request)
+        if page is not None:
+            serializer = serializers.CommentSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        return Response(serializers.CommentSerializer(comments, many=True).data)
+
+    @action(methods=['post'], url_path='comment', detail=True)
+    def add_comment(self, request, pk):
+        c = self.get_object().comment_set.create(content=request.data.get('content'),
+                                                 user=request.user)
+        return Response(serializers.CommentSerializer(c).data, status=status.HTTP_201_CREATED)
+
+    @action(methods=['post'], url_path='like', detail=True)
+    def like(self, request, pk):
+        post = self.get_object()
+        li, created = Like.objects.get_or_create(post=self.get_object(),
+                                                 user=request.user)
+        if not created:
+            li.active = not li.active
+            li.save()
+
+        context = {'request': request}
+        serializer = serializers.AuthenticatedPost(post, context=context)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        # return Response(serializers.AuthenticatedPost(self.get_object()).data)
+
+
+# Bình luận
+class CommentViewSet(viewsets.ViewSet, generics.DestroyAPIView):
+    queryset = Comment.objects.filter(active=True).order_by('-created_date')
+    serializer_class = serializers.CommentSerializer
+    parser_classes = [parsers.MultiPartParser]
+    pagination_class = paginators.PostCommentPaginator
+    permission_classes = [perms.CommentOwner]
+
+    # Sửa comment
+    def partial_update(self, request, pk=None):
+        cmt = self.get_object()
+        serializer = self.serializer_class(cmt, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
